@@ -1,4 +1,4 @@
-name: CDN Download Files
+name: CDN Download
 description: |
   Downloads trained_model.pt, config.properties, and tokenizer.json files from given CDN URLs
   and saves them locally with verified directory structure and file integrity checks.
