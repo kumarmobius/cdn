@@ -1,4 +1,4 @@
-name: CDN Download Files
+name: CDN Download
 description: Downloads trained_model.pt, config.json, and tokenizer.json files from CDN URLs and saves them locally with proper directory structure.
 inputs:
   - {name: pt_url, type: String, description: "URL to fetch the trained_model.pt model file from"}
@@ -44,11 +44,9 @@ implementation:
                 os.makedirs(p, exist_ok=True)
 
         def resolve_output_path(output_arg, default_filename):
-            """
-            If the runtime passed a path whose basename is 'data' (common in KFP/Argo),
-            treat that as the final file path and return it.
-            Otherwise treat output_arg as a directory and return dir/default_filename.
-            """
+            # If the runtime passed a path whose basename is 'data' (common in KFP/Argo),
+            # treat that as the final file path and return it.
+            # Otherwise treat output_arg as a directory and return dir/default_filename.
             base = os.path.basename(output_arg)
             if base == "data":
                 makedirs(os.path.dirname(output_arg) or ".")
