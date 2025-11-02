@@ -1,18 +1,13 @@
-name: CDN Download
-description: |
-  Downloads trained_model.pt, config.properties, and tokenizer.json files from given CDN URLs
-  and saves them locally with verified directory structure and file integrity checks.
-
+name: CDN Download Files
+description: Downloads trained_model.pt, config.json, and tokenizer.json files from CDN URLs and saves them locally with proper directory structure.
 inputs:
   - {name: pt_url, type: String, description: "URL to fetch the trained_model.pt model file from"}
-  - {name: config_url, type: String, description: "URL to fetch the config.properties file from"}
+  - {name: config_url, type: String, description: "URL to fetch the config.json file from"}
   - {name: tokenizer_url, type: String, description: "URL to fetch the tokenizer.json file from"}
-
 outputs:
-  - {name: pt_file, type: Model, description: "Directory artifact containing trained_model.pt"}
-  - {name: config_file, type: Data, description: "Directory artifact containing config.properties"}
-  - {name: tokenizer_file, type: Model, description: "Directory artifact containing tokenizer.json"}
-
+  - {name: pt_file, type: Model, description: "Downloaded trained_model.pt model file"}
+  - {name: config_file, type: String, description: "Downloaded config.json file"}
+  - {name: tokenizer_file, type: Model, description: "Downloaded tokenizer.json file"}
 implementation:
   container:
     image: nikhilv215/nesy-factory:v22
@@ -20,11 +15,9 @@ implementation:
       - sh
       - -c
       - |
-        set -e
-        echo "Installing dependencies..."
         PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests || \
         PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests --user
-        exec python3 -u - "$@"
+        exec "$0" "$@"
       - python3
       - -u
       - -c
@@ -38,19 +31,34 @@ implementation:
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--pt_url', type=str, required=True)
-        parser.add_argument('--pt_file', type=str, required=True)       # treated as directory
+        parser.add_argument('--pt_file', type=str, required=True)
         parser.add_argument('--config_url', type=str, required=True)
-        parser.add_argument('--config_file', type=str, required=True)   # treated as directory
+        parser.add_argument('--config_file', type=str, required=True)
         parser.add_argument('--tokenizer_url', type=str, required=True)
-        parser.add_argument('--tokenizer_file', type=str, required=True) # treated as directory
+        parser.add_argument('--tokenizer_file', type=str, required=True)
+
         args = parser.parse_args()
 
         def makedirs(p):
-            os.makedirs(p, exist_ok=True)
+            if p and not os.path.exists(p):
+                os.makedirs(p, exist_ok=True)
+
+        def resolve_output_path(output_arg, default_filename):
+            """
+            If the runtime passed a path whose basename is 'data' (common in KFP/Argo),
+            treat that as the final file path and return it.
+            Otherwise treat output_arg as a directory and return dir/default_filename.
+            """
+            base = os.path.basename(output_arg)
+            if base == "data":
+                makedirs(os.path.dirname(output_arg) or ".")
+                return output_arg
+            else:
+                makedirs(output_arg)
+                return os.path.join(output_arg, default_filename)
 
         def download_stream_to_file(url, out_file, timeout=300):
             print(f"Downloading {url} -> {out_file}")
-            # ensure parent exists
             makedirs(os.path.dirname(out_file) or ".")
             try:
                 with requests.get(url, stream=True, timeout=timeout) as r:
@@ -72,21 +80,10 @@ implementation:
             print("config_url:", args.config_url)
             print("tokenizer_url:", args.tokenizer_url)
 
-            # Decide actual file paths inside the provided output directories.
-            # The pipeline runtime typically gives a directory path for output artifacts;
-            # we will write known filenames inside those directories so the runtime can archive them.
-            pt_dir = args.pt_file
-            cfg_dir = args.config_file
-            tok_dir = args.tokenizer_file
-
-            # Ensure they are directories (create them)
-            makedirs(pt_dir)
-            makedirs(cfg_dir)
-            makedirs(tok_dir)
-
-            pt_out = os.path.join(pt_dir, "trained_model.pt")
-            cfg_out = os.path.join(cfg_dir, "config.properties")
-            tok_out = os.path.join(tok_dir, "tokenizer.json")
+            # Resolve final output paths (support both directory-style and runtime 'data' file)
+            pt_out = resolve_output_path(args.pt_file, "trained_model.pt")
+            cfg_out = resolve_output_path(args.config_file, "config.json")
+            tok_out = resolve_output_path(args.tokenizer_file, "tokenizer.json")
 
             # Download files into those paths
             download_stream_to_file(args.pt_url, pt_out, timeout=600)
@@ -105,14 +102,14 @@ implementation:
                 else:
                     print(f"Verified {label}: {fpath} ({os.path.getsize(fpath)} bytes)")
 
-            print(" All files downloaded and verified successfully.")
+            print("All files downloaded and verified successfully.")
             print("Artifacts produced:")
-            print(" - PT dir:", pt_dir)
-            print(" - Config dir:", cfg_dir)
-            print(" - Tokenizer dir:", tok_dir)
+            print(" - PT path:", pt_out)
+            print(" - Config path:", cfg_out)
+            print(" - Tokenizer path:", tok_out)
 
         except Exception as e:
-            print(" Error during download:", str(e))
+            print("Error during download:", str(e))
             import traceback
             traceback.print_exc()
             sys.exit(1)
