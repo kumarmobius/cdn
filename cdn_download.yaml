@@ -9,9 +9,9 @@ inputs:
   - {name: tokenizer_url, type: String, description: "URL to fetch the tokenizer.json file from"}
 
 outputs:
-  - {name: pt_file, type: Model, description: "Downloaded trained_model.pt model file"}
-  - {name: config_file, type: Data, description: "Downloaded config.properties file"}
-  - {name: tokenizer_file, type: Model, description: "Downloaded tokenizer.json file"}
+  - {name: pt_file, type: Model, description: "Directory artifact containing trained_model.pt"}
+  - {name: config_file, type: Data, description: "Directory artifact containing config.properties"}
+  - {name: tokenizer_file, type: Model, description: "Directory artifact containing tokenizer.json"}
 
 implementation:
   container:
@@ -38,30 +38,30 @@ implementation:
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--pt_url', type=str, required=True)
-        parser.add_argument('--pt_file', type=str, required=True)
+        parser.add_argument('--pt_file', type=str, required=True)       # treated as directory
         parser.add_argument('--config_url', type=str, required=True)
-        parser.add_argument('--config_file', type=str, required=True)
+        parser.add_argument('--config_file', type=str, required=True)   # treated as directory
         parser.add_argument('--tokenizer_url', type=str, required=True)
-        parser.add_argument('--tokenizer_file', type=str, required=True)
+        parser.add_argument('--tokenizer_file', type=str, required=True) # treated as directory
         args = parser.parse_args()
 
-        def safe_makedirs_for_file(path):
-            d = os.path.dirname(path) or "."
-            os.makedirs(d, exist_ok=True)
+        def makedirs(p):
+            os.makedirs(p, exist_ok=True)
 
-        def download_stream(url, out_path, timeout=300):
-            print(f"Downloading {url} -> {out_path}")
-            safe_makedirs_for_file(out_path)
+        def download_stream_to_file(url, out_file, timeout=300):
+            print(f"Downloading {url} -> {out_file}")
+            # ensure parent exists
+            makedirs(os.path.dirname(out_file) or ".")
             try:
                 with requests.get(url, stream=True, timeout=timeout) as r:
                     r.raise_for_status()
                     total = 0
-                    with open(out_path, "wb") as f:
+                    with open(out_file, "wb") as fh:
                         for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
                             if chunk:
-                                f.write(chunk)
+                                fh.write(chunk)
                                 total += len(chunk)
-                print(f"Saved {out_path} ({total} bytes)")
+                print(f"Saved {out_file} ({total} bytes)")
                 return total
             except requests.exceptions.RequestException as e:
                 print(f"Network error while downloading {url}: {e}")
@@ -72,20 +72,32 @@ implementation:
             print("config_url:", args.config_url)
             print("tokenizer_url:", args.tokenizer_url)
 
-            # Download model
-            download_stream(args.pt_url, args.pt_file, timeout=600)
+            # Decide actual file paths inside the provided output directories.
+            # The pipeline runtime typically gives a directory path for output artifacts;
+            # we will write known filenames inside those directories so the runtime can archive them.
+            pt_dir = args.pt_file
+            cfg_dir = args.config_file
+            tok_dir = args.tokenizer_file
 
-            # Download config
-            download_stream(args.config_url, args.config_file, timeout=120)
+            # Ensure they are directories (create them)
+            makedirs(pt_dir)
+            makedirs(cfg_dir)
+            makedirs(tok_dir)
 
-            # Download tokenizer
-            download_stream(args.tokenizer_url, args.tokenizer_file, timeout=120)
+            pt_out = os.path.join(pt_dir, "trained_model.pt")
+            cfg_out = os.path.join(cfg_dir, "config.properties")
+            tok_out = os.path.join(tok_dir, "tokenizer.json")
 
-            # Verify all
+            # Download files into those paths
+            download_stream_to_file(args.pt_url, pt_out, timeout=600)
+            download_stream_to_file(args.config_url, cfg_out, timeout=120)
+            download_stream_to_file(args.tokenizer_url, tok_out, timeout=120)
+
+            # Basic verification
             for fpath, label in [
-                (args.pt_file, "PT model"),
-                (args.config_file, "Config file"),
-                (args.tokenizer_file, "Tokenizer file"),
+                (pt_out, "PT model"),
+                (cfg_out, "Config file"),
+                (tok_out, "Tokenizer file"),
             ]:
                 if not (os.path.exists(fpath) and os.path.getsize(fpath) > 0):
                     print(f"Error: {label} missing or empty: {fpath}")
@@ -93,7 +105,11 @@ implementation:
                 else:
                     print(f"Verified {label}: {fpath} ({os.path.getsize(fpath)} bytes)")
 
-            print("All files downloaded and verified successfully.")
+            print(" All files downloaded and verified successfully.")
+            print("Artifacts produced:")
+            print(" - PT dir:", pt_dir)
+            print(" - Config dir:", cfg_dir)
+            print(" - Tokenizer dir:", tok_dir)
 
         except Exception as e:
             print(" Error during download:", str(e))
