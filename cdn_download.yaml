@@ -1,13 +1,15 @@
 name: CDN Download
-description: Downloads trained_model.pt, config.json, and tokenizer.json files from CDN URLs and saves them locally with proper directory structure.
+description: Downloads trained_model.pt, config.json, tokenizer.json and model.py files from CDN URLs and saves them locally with proper directory structure.
 inputs:
   - {name: pt_url, type: String, description: "URL to fetch the trained_model.pt model file from"}
   - {name: config_url, type: String, description: "URL to fetch the config.json file from"}
   - {name: tokenizer_url, type: String, description: "URL to fetch the tokenizer.json file from"}
+  - {name: model_url, type: String, description: "URL to fetch the model.py file from"}
 outputs:
   - {name: pt_file, type: Model, description: "Downloaded trained_model.pt model file"}
   - {name: config_file, type: Data, description: "Downloaded config.json file"}
   - {name: tokenizer_file, type: Model, description: "Downloaded tokenizer.json file"}
+  - {name: model_file, type: Data, description: "Downloaded model.py file"}
 implementation:
   container:
     image: nikhilv215/nesy-factory:v22
@@ -36,6 +38,8 @@ implementation:
         parser.add_argument('--config_file', type=str, required=True)
         parser.add_argument('--tokenizer_url', type=str, required=True)
         parser.add_argument('--tokenizer_file', type=str, required=True)
+        parser.add_argument('--model_url', type=str, required=True)
+        parser.add_argument('--model_file', type=str, required=True)
 
         args = parser.parse_args()
 
@@ -77,22 +81,26 @@ implementation:
             print("pt_url:", args.pt_url)
             print("config_url:", args.config_url)
             print("tokenizer_url:", args.tokenizer_url)
+            print("model_url:", args.model_url)
 
             # Resolve final output paths (support both directory-style and runtime 'data' file)
             pt_out = resolve_output_path(args.pt_file, "trained_model.pt")
             cfg_out = resolve_output_path(args.config_file, "config.json")
             tok_out = resolve_output_path(args.tokenizer_file, "tokenizer.json")
+            model_out = resolve_output_path(args.model_file, "model.py")
 
             # Download files into those paths
             download_stream_to_file(args.pt_url, pt_out, timeout=600)
             download_stream_to_file(args.config_url, cfg_out, timeout=120)
             download_stream_to_file(args.tokenizer_url, tok_out, timeout=120)
+            download_stream_to_file(args.model_url, model_out, timeout=120)
 
             # Basic verification
             for fpath, label in [
                 (pt_out, "PT model"),
                 (cfg_out, "Config file"),
                 (tok_out, "Tokenizer file"),
+                (model_out, "Model script (model.py)"),
             ]:
                 if not (os.path.exists(fpath) and os.path.getsize(fpath) > 0):
                     print(f"Error: {label} missing or empty: {fpath}")
@@ -105,6 +113,7 @@ implementation:
             print(" - PT path:", pt_out)
             print(" - Config path:", cfg_out)
             print(" - Tokenizer path:", tok_out)
+            print(" - Model script path:", model_out)
 
         except Exception as e:
             print("Error during download:", str(e))
@@ -124,3 +133,7 @@ implementation:
       - {inputValue: tokenizer_url}
       - --tokenizer_file
       - {outputPath: tokenizer_file}
+      - --model_url
+      - {inputValue: model_url}
+      - --model_file
+      - {outputPath: model_file}
